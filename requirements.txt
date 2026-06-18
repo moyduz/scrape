@@ -1,0 +1,15 @@
+playwright
+scrapling
+beautifulsoup4
+lxml
+html5lib
+httpx
+requests
+aiofiles
+pydantic
+python-slugify
+rich
+tqdm
+openai
+crawl4ai
+python-dotenv
