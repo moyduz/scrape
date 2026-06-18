@@ -79,6 +79,80 @@ function deterministicCopy(business: BusinessInput) {
   };
 }
 
+
+function extractModelText(aiResult: unknown): string {
+  if (!aiResult || typeof aiResult !== "object") return "";
+  const result = aiResult as Record<string, unknown>;
+  if (typeof result.response === "string") return result.response;
+  const choices = result.choices;
+  if (Array.isArray(choices) && choices.length > 0) {
+    const first = choices[0] as Record<string, unknown>;
+    if (typeof first.text === "string") return first.text;
+  }
+  return "";
+}
+
+function parseJsonObjectFromText(text: string): Record<string, unknown> | null {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced?.[1] || text;
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+
+  try {
+    const parsed = JSON.parse(candidate.slice(start, end + 1));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+
+function businessAllowsAlwaysOpenClaim(business: BusinessInput): boolean {
+  const source = JSON.stringify(business).toLowerCase();
+  return source.includes("24/7") || source.includes("24-hour") || source.includes("24 hour") || source.includes("around the clock");
+}
+
+function hasAlwaysOpenClaim(value: string): boolean {
+  const text = value.toLowerCase();
+  return text.includes("24/7") || text.includes("24-hour") || text.includes("24 hour") || text.includes("around the clock");
+}
+
+function normalizeGeneratedCopy(parsed: Record<string, unknown>, fallback: ReturnType<typeof deterministicCopy>, business: BusinessInput) {
+  const allowAlwaysOpenClaim = businessAllowsAlwaysOpenClaim(business);
+  const services = Array.isArray(parsed.services)
+    ? parsed.services
+        .filter((item): item is string => typeof item === "string")
+        .filter((item) => allowAlwaysOpenClaim || !hasAlwaysOpenClaim(item))
+        .slice(0, 6)
+    : fallback.services;
+
+  const name = business.name?.trim();
+  const phone = business.phone?.trim();
+  const title = typeof parsed.title === "string" && parsed.title.trim() ? parsed.title.trim() : fallback.title;
+  const hero = typeof parsed.hero === "string" && parsed.hero.trim() ? parsed.hero.trim() : fallback.hero;
+  const cta = typeof parsed.cta === "string" && parsed.cta.trim() ? parsed.cta.trim() : fallback.cta;
+  const metaDescription = typeof parsed.metaDescription === "string" && parsed.metaDescription.trim()
+    ? parsed.metaDescription.trim()
+    : fallback.metaDescription;
+
+  const subhero = typeof parsed.subhero === "string" && parsed.subhero.trim() ? parsed.subhero.trim() : fallback.subhero;
+  const safeMetaDescription = name && !metaDescription.toLowerCase().includes(name.toLowerCase())
+    ? fallback.metaDescription
+    : metaDescription;
+
+  return {
+    title: name && !title.toLowerCase().includes(name.toLowerCase()) ? fallback.title : title,
+    hero: name && !hero.toLowerCase().includes(name.toLowerCase()) ? fallback.hero : hero,
+    subhero: !allowAlwaysOpenClaim && hasAlwaysOpenClaim(subhero) ? fallback.subhero : subhero,
+    cta: phone && !cta.includes(phone) ? fallback.cta : cta,
+    services: services.length ? services : fallback.services,
+    metaDescription: !allowAlwaysOpenClaim && hasAlwaysOpenClaim(safeMetaDescription)
+      ? fallback.metaDescription
+      : safeMetaDescription,
+  };
+}
+
 async function generateBusinessCopy(request: Request, env: Env): Promise<Response> {
   const business = await readJson<BusinessInput>(request);
   const fallback = deterministicCopy(business);
@@ -88,18 +162,26 @@ async function generateBusinessCopy(request: Request, env: Env): Promise<Respons
   }
 
   const prompt = [
+    "Return JSON only. No markdown, no prose, no explanation.",
     "You write concise website preview copy for US local businesses.",
-    "Return strict JSON with keys: title, hero, subhero, cta, services, metaDescription.",
-    "Do not invent addresses, licenses, awards, or guarantees.",
+    "Required JSON keys: title, hero, subhero, cta, services, metaDescription.",
+    "services must be an array of 3 to 6 short strings.",
+    "Do not invent addresses, licenses, awards, guarantees, or 24/7 claims.",
     "Keep it specific to the business data.",
     `Business data: ${JSON.stringify(business)}`,
   ].join("\n");
 
   try {
-    const aiResult = await env.AI.run(env.WORKERS_AI_MODEL || "@cf/meta/llama-3.1-8b-instruct", {
+    const aiResult = await env.AI.run(env.WORKERS_AI_MODEL || "@cf/meta/llama-3.2-3b-instruct", {
       prompt,
+      max_tokens: 220,
     });
-    return json({ source: "workers-ai", fallback, aiResult });
+    const text = extractModelText(aiResult);
+    const parsed = parseJsonObjectFromText(text);
+    if (!parsed) {
+      return json({ source: "fallback", copy: fallback, warning: "Workers AI returned non-JSON output", raw: text.slice(0, 1000) });
+    }
+    return json({ source: "workers-ai", copy: normalizeGeneratedCopy(parsed, fallback, business), fallback });
   } catch (error) {
     return json({
       source: "fallback",
