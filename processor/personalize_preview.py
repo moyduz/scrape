@@ -25,6 +25,23 @@ TEMPLATE_NAME_HINTS = (
 
 PHONE_RE = re.compile(r"(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}")
 
+TEMPLATE_VENDOR_HINTS = (
+    "Webestica",
+    "Framer",
+    "Untitled UI",
+    "Made in",
+)
+
+GENERIC_SOCIAL_HOSTS = (
+    "facebook.com",
+    "instagram.com",
+    "linkedin.com",
+    "youtube.com",
+    "twitter.com",
+    "x.com",
+    "tiktok.com",
+)
+
 
 def _norm(value: object) -> str:
     return str(value or "").strip()
@@ -441,6 +458,84 @@ def personalize_hero_copy(soup: BeautifulSoup, business: dict) -> dict:
     return {"hero_updated": False}
 
 
+def personalize_footer_and_external_links(soup: BeautifulSoup, business: dict) -> dict:
+    name = _norm(business.get("name")) or "Moydus"
+    stats = {"vendor_text_replacements": 0, "vendor_links_updated": 0, "generic_social_links_removed": 0}
+
+    for tag in soup.find_all(["p", "span"]):
+        direct_text = " ".join(str(child).strip() for child in tag.children if isinstance(child, NavigableString) and str(child).strip())
+        full_text = tag.get_text(" ", strip=True)
+        if re.search(r"designed by|powered by|webestica", direct_text, re.IGNORECASE) or (
+            len(full_text) <= 120 and re.search(r"designed by|powered by|webestica", full_text, re.IGNORECASE)
+        ):
+            tag.clear()
+            tag.append("Built by Moydus")
+            stats["vendor_text_replacements"] += 1
+
+    for node in list(soup.find_all(string=True)):
+        if isinstance(node, Comment):
+            continue
+        parent = getattr(node, "parent", None)
+        if parent and parent.name in {"script", "style", "noscript"}:
+            continue
+
+        text = str(node)
+        new_text = text
+        for hint in TEMPLATE_VENDOR_HINTS:
+            new_text = re.sub(rf"\b{re.escape(hint)}\b", "Moydus", new_text, flags=re.IGNORECASE)
+        if new_text != text:
+            node.replace_with(new_text)
+            stats["vendor_text_replacements"] += 1
+
+    social_links = {
+        "facebook": _norm(business.get("facebook_url") or business.get("facebook")),
+        "instagram": _norm(business.get("instagram_url") or business.get("instagram")),
+        "linkedin": _norm(business.get("linkedin_url") or business.get("linkedin")),
+        "youtube": _norm(business.get("youtube_url") or business.get("youtube")),
+        "twitter": _norm(business.get("twitter_url") or business.get("x_url") or business.get("twitter") or business.get("x")),
+        "tiktok": _norm(business.get("tiktok_url") or business.get("tiktok")),
+    }
+
+    for a in list(soup.find_all("a", href=True)):
+        href = _norm(_safe_get(a, "href"))
+        href_lower = href.lower()
+        if "webestica.com" in href_lower:
+            a["href"] = "https://www.moydus.com/"
+            a["rel"] = "noopener"
+            a["target"] = "_blank"
+            if a.get_text(" ", strip=True):
+                a.clear()
+                a.append("Moydus")
+            stats["vendor_links_updated"] += 1
+            continue
+
+        matched_social = next((key for key, value in {
+            "facebook": "facebook.com",
+            "instagram": "instagram.com",
+            "linkedin": "linkedin.com",
+            "youtube": "youtube.com",
+            "twitter": "twitter.com",
+            "x": "x.com",
+            "tiktok": "tiktok.com",
+        }.items() if value in href_lower), None)
+        if not matched_social:
+            continue
+
+        profile_key = "twitter" if matched_social == "x" else matched_social
+        replacement = social_links.get(profile_key)
+        if replacement:
+            a["href"] = replacement
+            continue
+
+        parent = a.parent
+        a.decompose()
+        stats["generic_social_links_removed"] += 1
+        if parent and isinstance(parent, Tag) and not parent.get_text(" ", strip=True) and not parent.find("img"):
+            parent.decompose()
+
+    return stats
+
+
 def personalize_soup(soup: BeautifulSoup, business: dict | None) -> dict:
     business = business or {}
     report = {"business_name": _norm(business.get("name"))}
@@ -450,4 +545,5 @@ def personalize_soup(soup: BeautifulSoup, business: dict | None) -> dict:
     report.update(personalize_logo(soup, business))
     report.update(personalize_hero_copy(soup, business))
     report.update(personalize_phone_and_ctas(soup, business))
+    report.update(personalize_footer_and_external_links(soup, business))
     return report

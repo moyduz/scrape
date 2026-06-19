@@ -10,6 +10,8 @@ BLOCKED_PATTERNS = {
     "framer_generator_meta": re.compile(r"<meta[^>]+name=[\"']generator[\"'][^>]+framer", re.IGNORECASE),
     "framer_search_index": re.compile(r"framer-search-index", re.IGNORECASE),
     "framer_editorbar": re.compile(r"__framer-editorbar|__framer-loading-spin", re.IGNORECASE),
+    "template_vendor_credit": re.compile(r"webestica|designed by|powered by\s*$", re.IGNORECASE),
+    "generic_social_link": re.compile(r"https?://(?:www\.)?(?:facebook|instagram|linkedin|youtube|twitter|x|tiktok)\.com/?[\"'\s>]", re.IGNORECASE),
 }
 
 
