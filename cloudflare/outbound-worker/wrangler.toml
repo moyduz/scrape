@@ -8,7 +8,8 @@ binding = "AI"
 [vars]
 MOY_APP_API_BASE_URL = "https://app.moydus.com/api"
 PREVIEW_BASE_DOMAIN = "moydus.site"
-WORKERS_AI_MODEL = "@cf/meta/llama-3.2-3b-instruct"
+WORKERS_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast"
+WORKERS_AI_QUALITY_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 
 # Set secrets locally/production with:
 # npx wrangler secret put MOY_APP_API_TOKEN

@@ -50,6 +50,31 @@ Deploy:
 npx wrangler deploy
 ```
 
+
+## Workers AI model strategy
+
+`/api/business-copy` uses a fast JSON-mode model by default:
+
+```toml
+WORKERS_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast"
+```
+
+For slower, higher-quality one-off copy generation, call:
+
+```bash
+curl -X POST "https://<worker>/api/business-copy?mode=quality" \
+  -H "content-type: application/json" \
+  -d '{"name":"Acme Locksmith","category":"Locksmith","city":"Austin","state":"TX"}'
+```
+
+Quality mode uses:
+
+```toml
+WORKERS_AI_QUALITY_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+```
+
+Keep the fast model as the production default for outbound batches. The quality model can timeout under concurrent or cold requests, so it should be opt-in.
+
 ## Static preview deploy direction
 
 Recommended flow:

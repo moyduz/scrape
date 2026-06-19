@@ -4,6 +4,7 @@ interface Env {
   MOY_APP_API_TOKEN?: string;
   PREVIEW_BASE_DOMAIN: string;
   WORKERS_AI_MODEL: string;
+  WORKERS_AI_QUALITY_MODEL?: string;
 }
 
 type BusinessInput = {
@@ -92,6 +93,16 @@ function extractModelText(aiResult: unknown): string {
   return "";
 }
 
+function extractStructuredObject(aiResult: unknown): Record<string, unknown> | null {
+  if (!aiResult || typeof aiResult !== "object") return null;
+  const result = aiResult as Record<string, unknown>;
+  const response = result.response;
+  if (response && typeof response === "object" && !Array.isArray(response)) {
+    return response as Record<string, unknown>;
+  }
+  return null;
+}
+
 function parseJsonObjectFromText(text: string): Record<string, unknown> | null {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidate = fenced?.[1] || text;
@@ -153,6 +164,57 @@ function normalizeGeneratedCopy(parsed: Record<string, unknown>, fallback: Retur
   };
 }
 
+function buildCopyRequest(prompt: string) {
+  return {
+    messages: [
+      {
+        role: "system",
+        content: "You write concise website preview copy for US local businesses. Return only schema-valid content. Do not invent addresses, licenses, awards, guarantees, or 24/7 claims.",
+      },
+      { role: "user", content: prompt },
+    ],
+    max_tokens: 220,
+    temperature: 0.2,
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          hero: { type: "string" },
+          subhero: { type: "string" },
+          cta: { type: "string" },
+          services: {
+            type: "array",
+            minItems: 3,
+            maxItems: 6,
+            items: { type: "string" },
+          },
+          metaDescription: { type: "string" },
+        },
+        required: ["title", "hero", "subhero", "cta", "services", "metaDescription"],
+      },
+    },
+  };
+}
+
+async function runCopyModel(env: Env, model: string, prompt: string): Promise<{ parsed: Record<string, unknown> | null; raw: string; error?: string }> {
+  try {
+    const aiResult = await env.AI.run(model, buildCopyRequest(prompt));
+    const raw = extractModelText(aiResult);
+    return {
+      parsed: extractStructuredObject(aiResult) || parseJsonObjectFromText(raw),
+      raw,
+    };
+  } catch (error) {
+    return {
+      parsed: null,
+      raw: "",
+      error: error instanceof Error ? error.message : "Workers AI request failed",
+    };
+  }
+}
+
 async function generateBusinessCopy(request: Request, env: Env): Promise<Response> {
   const business = await readJson<BusinessInput>(request);
   const fallback = deterministicCopy(business);
@@ -171,24 +233,41 @@ async function generateBusinessCopy(request: Request, env: Env): Promise<Respons
     `Business data: ${JSON.stringify(business)}`,
   ].join("\n");
 
-  try {
-    const aiResult = await env.AI.run(env.WORKERS_AI_MODEL || "@cf/meta/llama-3.2-3b-instruct", {
-      prompt,
-      max_tokens: 220,
-    });
-    const text = extractModelText(aiResult);
-    const parsed = parseJsonObjectFromText(text);
-    if (!parsed) {
-      return json({ source: "fallback", copy: fallback, warning: "Workers AI returned non-JSON output", raw: text.slice(0, 1000) });
-    }
-    return json({ source: "workers-ai", copy: normalizeGeneratedCopy(parsed, fallback, business), fallback });
-  } catch (error) {
+  const primaryModel = env.WORKERS_AI_MODEL || "@cf/meta/llama-3.1-8b-instruct-fast";
+  const qualityModel = env.WORKERS_AI_QUALITY_MODEL || "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+  const requestedMode = new URL(request.url).searchParams.get("mode");
+  const selectedModel = requestedMode === "quality" ? qualityModel : primaryModel;
+  const fallbackModel = requestedMode === "quality" ? primaryModel : selectedModel;
+  const primary = await runCopyModel(env, selectedModel, prompt);
+
+  if (primary.parsed) {
     return json({
-      source: "fallback",
-      copy: fallback,
-      warning: error instanceof Error ? error.message : "Workers AI request failed",
+      source: "workers-ai",
+      model: selectedModel,
+      copy: normalizeGeneratedCopy(primary.parsed, fallback, business),
+      fallback,
     });
   }
+
+  if (fallbackModel !== selectedModel) {
+    const secondary = await runCopyModel(env, fallbackModel, prompt);
+    if (secondary.parsed) {
+      return json({
+        source: "workers-ai-fallback",
+        model: fallbackModel,
+        primary_error: primary.error || "Selected model returned non-JSON output",
+        copy: normalizeGeneratedCopy(secondary.parsed, fallback, business),
+        fallback,
+      });
+    }
+  }
+
+  return json({
+    source: "fallback",
+    copy: fallback,
+    warning: primary.error || "Workers AI returned non-JSON output",
+    raw: primary.raw.slice(0, 1000),
+  });
 }
 
 async function buildPreviewRequest(request: Request, env: Env): Promise<Response> {
