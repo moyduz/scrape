@@ -1,12 +1,48 @@
+import os
 import re
 import shutil
 from pathlib import Path
+from urllib.parse import urlencode
 from bs4 import BeautifulSoup
 from rich.console import Console
 
 from config.settings import ASTRO_DIR
 from processor.personalize_preview import clean_framer_css, personalize_soup
 from processor.quality_check import run_static_quality_checks, save_quality_report
+
+MOYDUS_APP_URL = os.environ.get("MOYDUS_APP_URL", "https://app.moydus.com").rstrip("/")
+
+
+def _build_claim_bar(business_profile: dict | None) -> str:
+    """
+    Returns an HTML snippet for the sticky claim bar shown at the top of demo pages.
+    The "Claim this site" button links to the dashboard onboarding with the demo pre-filled.
+    """
+    if not business_profile:
+        return ""
+
+    name = business_profile.get("name", "Your business")
+    claim_url = business_profile.get("claim_url") or business_profile.get("demo_claim_url")
+    if not claim_url:
+        website = business_profile.get("website", "")
+        params = urlencode({k: v for k, v in {
+            "source": "outbound_claim",
+            "site_url": website,
+        }.items() if v})
+        claim_url = f"{MOYDUS_APP_URL}/onboarding/scan" + (f"?{params}" if params else "")
+
+    return f"""<div id="moydus-claim-bar" style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#0f0f0f;border-bottom:1px solid rgba(255,255,255,0.08);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;font-family:system-ui,-apple-system,sans-serif;">
+  <span style="color:rgba(255,255,255,0.6);font-size:13px;line-height:1.4;">
+    <strong style="color:#fff;">This preview was built for {name}.</strong>
+    Want to customize it and go live?
+  </span>
+  <a href="{claim_url}" target="_blank" rel="noopener noreferrer"
+     style="flex-shrink:0;background:#fa5d19;color:#fff;text-decoration:none;font-size:13px;font-weight:600;padding:8px 16px;border-radius:8px;white-space:nowrap;transition:opacity .15s;"
+     onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+    Claim this site →
+  </a>
+</div>
+<style>body{{padding-top:48px !important;}}</style>"""
 
 console = Console()
 
@@ -163,16 +199,27 @@ def generate_raw_astro(
     css_path = styles_dir / "cloned.css"
     css_path.write_text(rewritten_css, encoding="utf-8")
     
+    # Inject claim bar into <body> before closing tag
+    claim_bar_html = _build_claim_bar(business_profile)
+    body_tag = soup.find("body")
+    if body_tag and claim_bar_html:
+        claim_soup = BeautifulSoup(claim_bar_html, "html5lib")
+        claim_node = claim_soup.find("div", {"id": "moydus-claim-bar"})
+        claim_style = claim_soup.find("style")
+        if claim_node:
+            body_tag.append(claim_node)
+        if claim_style:
+            body_tag.append(claim_style)
+
     # Save Astro Page
-    # Get the HTML string from BeautifulSoup
     html_content = str(soup)
-    
+
     astro_content = f"""---
 import "../styles/cloned.css";
 ---
 {html_content}
 """
-    
+
     astro_path = pages_dir / "index.astro"
     astro_path.write_text(astro_content, encoding="utf-8")
 
