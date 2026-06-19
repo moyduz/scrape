@@ -9,6 +9,7 @@ BLOCKED_PATTERNS = {
     "framer_get_it_button": re.compile(r"get it button", re.IGNORECASE),
     "framer_generator_meta": re.compile(r"<meta[^>]+name=[\"']generator[\"'][^>]+framer", re.IGNORECASE),
     "framer_search_index": re.compile(r"framer-search-index", re.IGNORECASE),
+    "framer_editorbar": re.compile(r"__framer-editorbar|__framer-loading-spin", re.IGNORECASE),
 }
 
 
@@ -19,6 +20,11 @@ def _norm(value: object) -> str:
 def run_static_quality_checks(index_path: str | Path, business: dict | None = None) -> dict:
     path = Path(index_path)
     html = path.read_text(encoding="utf-8") if path.exists() else ""
+    style_text = ""
+    styles_dir = path.parent.parent / "styles"
+    if styles_dir.exists():
+        style_text = "\n".join(css.read_text(encoding="utf-8", errors="ignore") for css in styles_dir.glob("*.css"))
+    searchable = f"{html}\n{style_text}"
     business = business or {}
     checks = []
 
@@ -29,7 +35,7 @@ def run_static_quality_checks(index_path: str | Path, business: dict | None = No
     add("html_not_empty", len(html.strip()) > 500, f"{len(html)} bytes")
 
     for name, pattern in BLOCKED_PATTERNS.items():
-        found = bool(pattern.search(html))
+        found = bool(pattern.search(searchable))
         add(f"no_{name}", not found, "blocked artifact found" if found else "")
 
     business_name = _norm(business.get("name"))

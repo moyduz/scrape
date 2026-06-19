@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 from rich.console import Console
 
 from config.settings import ASTRO_DIR
-from processor.personalize_preview import personalize_soup
+from processor.personalize_preview import clean_framer_css, personalize_soup
 from processor.quality_check import run_static_quality_checks, save_quality_report
 
 console = Console()
@@ -148,6 +148,8 @@ def generate_raw_astro(
         return m.group(0)
 
     rewritten_css = _CSS_URL_RE.sub(css_url_replacer, css)
+    rewritten_css, css_cleanup_report = clean_framer_css(rewritten_css)
+    personalization_report["css_cleanup"] = css_cleanup_report
 
     # 3. Create Astro files
     src_dir = output_dir / "src"
