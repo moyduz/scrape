@@ -85,3 +85,15 @@ Recommended flow:
 4. Send email/SMS/WhatsApp with the preview URL.
 
 The Worker should not replace the Python scraper. It should sit in front of the backend as a lightweight edge API for copy generation, payload shaping, and registration.
+
+
+## Domain strategy
+
+For one-off demos, a Pages custom domain like `austin-dermatology.moydus.com` is possible, but Cloudflare requires the custom domain to be attached to the Pages project, not only a DNS CNAME. If DNS exists without the Pages custom-domain binding, the preview can fail at the edge.
+
+For outbound campaigns, prefer a preview domain that is separate from the main brand domain:
+
+- single hand-picked demo: `austin-dermatology.moydus.com`
+- bulk outbound previews: `austin-dermatology.moydus.site` or wildcard Worker routing under `*.moydus.site`
+
+This keeps `moydus.com` clean for the agency/product site while allowing many short-lived previews under `moydus.site`.

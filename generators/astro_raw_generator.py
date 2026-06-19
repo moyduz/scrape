@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 from pathlib import Path
+from html import escape
 from urllib.parse import urlencode
 from bs4 import BeautifulSoup
 from rich.console import Console
@@ -15,13 +16,13 @@ MOYDUS_APP_URL = os.environ.get("MOYDUS_APP_URL", "https://app.moydus.com").rstr
 
 def _build_claim_bar(business_profile: dict | None) -> str:
     """
-    Returns an HTML snippet for the sticky claim bar shown at the top of demo pages.
-    The "Claim this site" button links to the dashboard onboarding with the demo pre-filled.
+    Returns a floating review widget for demo pages.
+    It stays out of the template layout so it does not cover nav/header UI.
     """
     if not business_profile:
         return ""
 
-    name = business_profile.get("name", "Your business")
+    name = escape(str(business_profile.get("name") or "your business"))
     claim_url = business_profile.get("claim_url") or business_profile.get("demo_claim_url")
     if not claim_url:
         website = business_profile.get("website", "")
@@ -30,19 +31,28 @@ def _build_claim_bar(business_profile: dict | None) -> str:
             "site_url": website,
         }.items() if v})
         claim_url = f"{MOYDUS_APP_URL}/onboarding/scan" + (f"?{params}" if params else "")
+    claim_url = escape(str(claim_url), quote=True)
 
-    return f"""<div id="moydus-claim-bar" style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#0f0f0f;border-bottom:1px solid rgba(255,255,255,0.08);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;font-family:system-ui,-apple-system,sans-serif;">
-  <span style="color:rgba(255,255,255,0.6);font-size:13px;line-height:1.4;">
-    <strong style="color:#fff;">This preview was built for {name}.</strong>
-    Want to customize it and go live?
-  </span>
-  <a href="{claim_url}" target="_blank" rel="noopener noreferrer"
-     style="flex-shrink:0;background:#fa5d19;color:#fff;text-decoration:none;font-size:13px;font-weight:600;padding:8px 16px;border-radius:8px;white-space:nowrap;transition:opacity .15s;"
-     onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
-    Claim this site →
-  </a>
-</div>
-<style>body{{padding-top:48px !important;}}</style>"""
+    return f"""<div id="moydus-claim-widget" style="position:fixed;right:18px;bottom:18px;z-index:99999;width:min(340px,calc(100vw - 32px));font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111827;">
+  <div style="border:1px solid rgba(17,24,39,.10);background:rgba(255,255,255,.96);box-shadow:0 18px 50px rgba(15,23,42,.18);backdrop-filter:blur(14px);border-radius:18px;overflow:hidden;">
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 14px 10px;">
+      <div style="width:34px;height:34px;border-radius:999px;background:#111827;color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);">M</div>
+      <div style="min-width:0;flex:1;">
+        <div style="font-size:13px;font-weight:700;line-height:1.2;color:#111827;">Moydus preview</div>
+        <div style="font-size:12px;line-height:1.35;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Built for {name}</div>
+      </div>
+      <div style="height:8px;width:8px;border-radius:999px;background:#22c55e;box-shadow:0 0 0 4px rgba(34,197,94,.12);"></div>
+    </div>
+    <div style="padding:0 14px 14px;">
+      <div style="font-size:14px;font-weight:650;line-height:1.35;color:#111827;margin-bottom:6px;">Like this website?</div>
+      <div style="font-size:12.5px;line-height:1.45;color:#4b5563;margin-bottom:12px;">Approve it, request changes, or ask Moydus to connect your domain and take it live.</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <a href="{claim_url}" target="_blank" rel="noopener noreferrer" style="flex:1;text-align:center;background:#111827;color:#fff;text-decoration:none;font-size:13px;font-weight:700;padding:10px 12px;border-radius:12px;line-height:1;box-shadow:0 8px 18px rgba(17,24,39,.18);">Review site</a>
+        <a href="mailto:hello@moydus.com?subject=I%20like%20my%20website%20preview" style="text-align:center;background:#f3f4f6;color:#111827;text-decoration:none;font-size:13px;font-weight:700;padding:10px 12px;border-radius:12px;line-height:1;">Email</a>
+      </div>
+    </div>
+  </div>
+</div>"""
 
 console = Console()
 
@@ -204,12 +214,9 @@ def generate_raw_astro(
     body_tag = soup.find("body")
     if body_tag and claim_bar_html:
         claim_soup = BeautifulSoup(claim_bar_html, "html5lib")
-        claim_node = claim_soup.find("div", {"id": "moydus-claim-bar"})
-        claim_style = claim_soup.find("style")
+        claim_node = claim_soup.find("div", {"id": "moydus-claim-widget"})
         if claim_node:
             body_tag.append(claim_node)
-        if claim_style:
-            body_tag.append(claim_style)
 
     # Save Astro Page
     html_content = str(soup)

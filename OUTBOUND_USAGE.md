@@ -117,6 +117,45 @@ Use this after an external deploy step already knows the preview URL.
   --outreach-recipient "owner@example.com"
 ```
 
+
+## Bulk campaign flow
+
+Use `scripts/run_campaign.py` when the input is a category/city instead of a single known business. The runner does this in order:
+
+1. scrape Google Maps leads with `gosom` or SerpAPI
+2. generate a personalized Astro preview from the reference/template URL
+3. block deploy if the static quality gate fails
+4. deploy the generated preview to a git branch for Pages-connected hosting
+5. write the outbound payload to `data/campaigns/<subdomain>.json`
+6. optionally register the preview in `moy-app`
+7. create an outreach record as `draft` for email/SMS/WhatsApp delivery
+
+```bash
+.venv/bin/python scripts/run_campaign.py \
+  --category "dermatology clinic" \
+  --city "Austin" \
+  --state "TX" \
+  --template-url "https://dermato-wbs.framer.website/" \
+  --template-key "dermatology" \
+  --deploy-repo-dir "$HOME/Sites/moydus-demo-sites" \
+  --deploy-remote "git@github.com:YOUR_ORG/moydus-demo-sites.git" \
+  --push \
+  --preview-base-domain "moydus.site" \
+  --api-base-url "https://app.moydus.com/api" \
+  --api-token "$MOY_APP_API_TOKEN" \
+  --outreach-channel email \
+  --campaign "dermatology-austin-june-2026" \
+  --limit 20
+```
+
+For production outreach, the generated `outreach_messages` records should be picked up by `moy-app` delivery jobs. This scraper repo prepares the preview and tracking payload; provider-specific sending belongs in the app/backend layer so unsubscribe, consent, retries, and delivery status stay centralized.
+
+## Claim/review widget
+
+Generated previews include a floating Moydus review widget instead of a sticky top bar. The widget intentionally stays outside the template header/navigation so it does not break cloned layouts. It links to `business.claim_url` or `business.demo_claim_url` when provided; otherwise it falls back to `https://app.moydus.com/onboarding/scan` with the business name and source URL pre-filled.
+
+When `moy-app` exposes a public review route, make the backend return `claimUrl` from `POST /api/outbound/demo-sites` and pass that value back into the generated business profile for a second render/deploy pass.
+
 ## Payload shape
 
 ```json
