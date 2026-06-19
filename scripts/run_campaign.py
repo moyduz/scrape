@@ -54,6 +54,25 @@ def slugify_business(name: str) -> str:
     return slug[:60]
 
 
+def inject_claim_url(output_dir: str | Path, claim_url: str) -> bool:
+    import re
+    index_path = Path(output_dir) / "src" / "pages" / "index.astro"
+    if not claim_url or not index_path.exists():
+        return False
+    html = index_path.read_text(encoding="utf-8")
+    updated = re.sub(
+        r'(<a href=")([^"]+)("[^>]*>Review site</a>)',
+        lambda match: f"{match.group(1)}{claim_url}{match.group(3)}"
+        if "moydus-claim-widget" in html else match.group(0),
+        html,
+        count=1,
+    )
+    if updated == html:
+        return False
+    index_path.write_text(updated, encoding="utf-8")
+    return True
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Moydus outbound campaign runner")
 
@@ -127,10 +146,10 @@ def process_business(
         )
 
     deploy_result: dict = {}
+    output_dir = result.get("output_dir") or result.get("nextjs_output") or result.get("astro_output")
     preview_url = f"https://{subdomain}.{args.preview_base_domain}"
 
     if args.deploy_repo_dir and not args.dry_run:
-        output_dir = result.get("output_dir") or result.get("nextjs_output") or result.get("astro_output")
         if output_dir and Path(output_dir).exists():
             deploy_result = deploy_to_git_branch(
                 source_dir=output_dir,
@@ -200,6 +219,16 @@ def process_business(
             console.print(f"[green]moy-app registered: demoSiteId={demo_site_id}[/green]")
             if claim_url:
                 console.print(f"[green]Claim URL: {claim_url}[/green]")
+                if args.deploy_repo_dir and output_dir and inject_claim_url(output_dir, claim_url):
+                    deploy_result = deploy_to_git_branch(
+                        source_dir=output_dir,
+                        repo_dir=args.deploy_repo_dir,
+                        branch=f"demo/{subdomain}",
+                        remote_url=args.deploy_remote,
+                        commit_message=f"Attach claim URL for {business.name}",
+                        push=args.push,
+                    )
+                    console.print("[green]Updated preview with public claim URL.[/green]")
             else:
                 console.print("[yellow]moy-app registered, but no public claimUrl was returned yet.[/yellow]")
             result["moy_app"] = backend_response

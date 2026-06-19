@@ -23,6 +23,25 @@ def load_and_merge(path: str | None, values: dict) -> dict:
     return clean(data)
 
 
+def inject_claim_url(output_dir: str | Path, claim_url: str) -> bool:
+    import re
+    index_path = Path(output_dir) / "src" / "pages" / "index.astro"
+    if not claim_url or not index_path.exists():
+        return False
+    html = index_path.read_text(encoding="utf-8")
+    updated = re.sub(
+        r'(<a href=")([^"]+)("[^>]*>Review site</a>)',
+        lambda match: f"{match.group(1)}{claim_url}{match.group(3)}"
+        if "moydus-claim-widget" in html else match.group(0),
+        html,
+        count=1,
+    )
+    if updated == html:
+        return False
+    index_path.write_text(updated, encoding="utf-8")
+    return True
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="One-command Moydus outbound demo: URL -> Astro clone -> Git branch -> moy-app record."
@@ -181,6 +200,16 @@ def main() -> None:
             api_base_url=args.api_base_url,
             api_token=args.api_token,
         )
+        claim_url = backend_response.get("claimUrl") or backend_response.get("claim_url")
+        if claim_url and inject_claim_url(output_dir, claim_url):
+            deploy_result = deploy_to_git_branch(
+                source_dir=output_dir,
+                repo_dir=args.deploy_repo_dir,
+                branch=branch,
+                remote_url=args.deploy_remote,
+                commit_message=f"Attach claim URL for {args.business_name}",
+                push=args.push,
+            )
         if args.response_output:
             save_payload(backend_response, args.response_output)
 

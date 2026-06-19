@@ -97,3 +97,18 @@ For outbound campaigns, prefer a preview domain that is separate from the main b
 - bulk outbound previews: `austin-dermatology.moydus.site` or wildcard Worker routing under `*.moydus.site`
 
 This keeps `moydus.com` clean for the agency/product site while allowing many short-lived previews under `moydus.site`.
+
+
+### Attach a Pages custom domain by API
+
+Wrangler can deploy Pages projects but does not expose a custom-domain add command in the current CLI. Use `scripts/add_pages_custom_domain.py` when a Cloudflare API token is available:
+
+```bash
+export CLOUDFLARE_API_TOKEN="..."
+export CLOUDFLARE_ACCOUNT_ID="5e5f8a26d62e3255d96f4410baf43d73"
+.venv/bin/python scripts/add_pages_custom_domain.py \
+  --project-name austin-dermatology-studio \
+  --domain austin-dermatology.moydus.site
+```
+
+After the Pages custom domain is attached, make sure DNS for the subdomain points to the Pages target if Cloudflare does not create it automatically. For outbound scale, wildcard Worker routing under `*.moydus.site` is still better than creating thousands of one-off custom domains.
