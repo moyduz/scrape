@@ -1,0 +1,44 @@
+name: Inbound Preview Generator
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: "WebsiteProject ID to generate preview for"
+        required: true
+        type: string
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        run: playwright install --with-deps chromium
+
+      - name: Run inbound preview worker
+        run: |
+          python scripts/inbound_preview_worker.py \
+            --project-id ${{ github.event.inputs.project_id }}
+        env:
+          LARAVEL_API_URL: ${{ secrets.LARAVEL_API_URL }}
+          MOYDUS_PREVIEW_WORKER_TOKEN: ${{ secrets.MOYDUS_PREVIEW_WORKER_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PAGES_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_DNS_TOKEN: ${{ secrets.CLOUDFLARE_DNS_TOKEN }}
+          CLOUDFLARE_MOYDUS_ZONE_ID: ${{ secrets.CLOUDFLARE_MOYDUS_ZONE_ID }}
+          SANITY_PROJECT_ID: ${{ secrets.SANITY_PROJECT_ID }}
+          SANITY_DATASET: production
+          PREVIEW_BASE_DOMAIN: moydus.com

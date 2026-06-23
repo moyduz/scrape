@@ -1,0 +1,89 @@
+name: Outbound Demo Generator
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Framer template URL to clone"
+        required: true
+        type: string
+      business_name:
+        description: "Business name"
+        required: true
+        type: string
+      business_category:
+        description: "Business category"
+        required: false
+        type: string
+      business_city:
+        description: "Business city"
+        required: false
+        type: string
+      business_email:
+        description: "Business email"
+        required: false
+        type: string
+      business_phone:
+        description: "Business phone"
+        required: false
+        type: string
+      subdomain:
+        description: "Preview subdomain (e.g. acme-locksmith)"
+        required: true
+        type: string
+      outreach_channel:
+        description: "Outreach channel"
+        required: false
+        default: "email"
+        type: choice
+        options: [email, sms, whatsapp, manual]
+      outreach_recipient:
+        description: "Outreach recipient (email or phone)"
+        required: false
+        type: string
+      outreach_campaign:
+        description: "Campaign name"
+        required: false
+        type: string
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        run: playwright install --with-deps chromium
+
+      - name: Run outbound demo generator
+        run: |
+          python scripts/run_outbound_demo.py \
+            "${{ github.event.inputs.url }}" \
+            --business-name "${{ github.event.inputs.business_name }}" \
+            ${{ github.event.inputs.business_category && format('--business-category "{0}"', github.event.inputs.business_category) || '' }} \
+            ${{ github.event.inputs.business_city && format('--business-city "{0}"', github.event.inputs.business_city) || '' }} \
+            ${{ github.event.inputs.business_email && format('--business-email "{0}"', github.event.inputs.business_email) || '' }} \
+            ${{ github.event.inputs.business_phone && format('--business-phone "{0}"', github.event.inputs.business_phone) || '' }} \
+            --subdomain "${{ github.event.inputs.subdomain }}" \
+            ${{ github.event.inputs.outreach_channel && format('--outreach-channel "{0}"', github.event.inputs.outreach_channel) || '' }} \
+            ${{ github.event.inputs.outreach_recipient && format('--outreach-recipient "{0}"', github.event.inputs.outreach_recipient) || '' }} \
+            ${{ github.event.inputs.outreach_campaign && format('--outreach-campaign "{0}"', github.event.inputs.outreach_campaign) || '' }} \
+            --register-backend
+        env:
+          MOY_APP_API_BASE_URL: ${{ secrets.MOY_APP_API_BASE_URL }}
+          MOY_APP_API_TOKEN: ${{ secrets.MOY_APP_API_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PAGES_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_DNS_TOKEN: ${{ secrets.CLOUDFLARE_DNS_TOKEN }}
+          CLOUDFLARE_MOYDUS_ZONE_ID: ${{ secrets.CLOUDFLARE_MOYDUS_ZONE_ID }}
