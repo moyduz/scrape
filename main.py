@@ -415,7 +415,7 @@ def main():
     parser.add_argument("--outbound-payload-output", default=None, help="Write moy-app outbound payload JSON to this path")
     parser.add_argument("--api-base-url", default=None, help="moy-app API base URL, e.g. https://app.moydus.com/api")
     parser.add_argument("--api-token", default=None, help="Optional moy-app bearer token")
-    parser.add_argument("--preview-url", default=None, help="Public deployed preview URL, e.g. https://acme.moydus.site")
+    parser.add_argument("--preview-url", default=None, help="Public deployed preview URL, e.g. https://acme.moydus.com")
     parser.add_argument("--screenshot-url", default=None, help="Public screenshot URL for email/CRM")
     parser.add_argument("--template-key", default=None, help="Template/reference key used for the demo")
     parser.add_argument("--industry", default=None, help="Industry label for the demo")

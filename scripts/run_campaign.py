@@ -89,7 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--template-url", required=True, help="Framer/reference URL to clone for all demos")
     p.add_argument("--template-key", default=None)
     p.add_argument("--clone-mode", choices=["astro-raw", "nextjs"], default="astro-raw")
-    p.add_argument("--preview-base-domain", default="moydus.site")
+    p.add_argument("--preview-base-domain", default="moydus.com")
 
     # Git deploy
     p.add_argument("--deploy-repo-dir", default=None, help="Local git repo for Cloudflare Pages branches")

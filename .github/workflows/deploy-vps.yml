@@ -1,0 +1,36 @@
+name: deploy-vps
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/**"
+      - "integrations/**"
+      - "generators/**"
+      - "scraper/**"
+      - "processor/**"
+      - "extractor/**"
+      - "ai/**"
+      - "utils/**"
+      - "config/**"
+      - "main.py"
+      - "requirements.txt"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy Python worker to VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 159.195.138.224
+          username: moydu-deployer
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd /var/www/scrape
+            sudo GIT_SSH_COMMAND='ssh -i /root/.ssh/id_rsa_moyduz' git pull origin main
+            sudo /var/www/scrape/venv/bin/pip install -r requirements.txt -q
+            sudo supervisorctl restart scrape-inbound-worker
+            echo "Deploy done"

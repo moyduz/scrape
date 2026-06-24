@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-from integrations.git_deploy import deploy_to_git_branch
+from integrations.cloudflare import attach_demo_domain, deploy_pages_direct
 from integrations.moy_app import build_demo_payload, load_json_file, register_demo_site, save_payload
 from main import run_pipeline
 from utils.helpers import url_to_slug
@@ -44,7 +44,7 @@ def inject_claim_url(output_dir: str | Path, claim_url: str) -> bool:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="One-command Moydus outbound demo: URL -> Astro clone -> Git branch -> moy-app record."
+        description="One-command Moydus outbound demo: URL -> Astro clone -> Cloudflare Pages -> moy-app record."
     )
     parser.add_argument("url", help="Reference/template URL to clone")
     parser.add_argument("--clone-mode", choices=["astro-raw", "nextjs"], default="astro-raw")
@@ -68,16 +68,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--industry", default=None)
     parser.add_argument("--subdomain", default=None)
     parser.add_argument("--preview-url", default=None)
-    parser.add_argument("--preview-base-domain", default="moydus.site")
+    parser.add_argument("--preview-base-domain", default="moydus.com")
     parser.add_argument("--screenshot-url", default=None)
     parser.add_argument("--demo-status", default="generated")
 
-    parser.add_argument("--deploy-repo-dir", required=True, help="Local git repo used for deploy branches")
-    parser.add_argument("--deploy-remote", default=None, help="GitHub remote URL for deploy repo")
-    parser.add_argument("--deploy-branch", default=None)
-    parser.add_argument("--push", action="store_true", help="Push deploy branch to origin")
-    parser.add_argument("--deploy-provider", default="github")
+    parser.add_argument("--deploy-provider", default="cloudflare-pages")
     parser.add_argument("--deploy-id", default=None)
+    parser.add_argument("--no-deploy", action="store_true", help="Skip Cloudflare deploy (generate only)")
 
     parser.add_argument("--outreach-json", default=None)
     parser.add_argument("--outreach-channel", choices=["email", "sms", "whatsapp", "manual"], default=None)
@@ -105,7 +102,6 @@ def main() -> None:
     args = build_parser().parse_args()
     slug = url_to_slug(args.url)
     subdomain = args.subdomain or slug
-    branch = args.deploy_branch or f"demo/{subdomain}"
     preview_url = args.preview_url or f"https://{subdomain}.{args.preview_base_domain}"
     template_key = args.template_key or slug
 
@@ -142,14 +138,16 @@ def main() -> None:
             "Fix the clone or pass --allow-quality-fail to override."
         )
 
-    deploy_result = deploy_to_git_branch(
-        source_dir=output_dir,
-        repo_dir=args.deploy_repo_dir,
-        branch=branch,
-        remote_url=args.deploy_remote,
-        commit_message=f"Generate preview for {args.business_name}",
-        push=args.push,
-    )
+    deploy_result = {}
+    if not args.no_deploy:
+        print(f"Deploying {output_dir} → CF Pages project '{subdomain}'...")
+        deploy_result = deploy_pages_direct(subdomain, output_dir)
+        domain = f"{subdomain}.{args.preview_base_domain}"
+        print(f"Attaching custom domain {domain}...")
+        domain_result = attach_demo_domain(subdomain, domain)
+        deploy_result["domain"] = domain
+        deploy_result["domain_result"] = domain_result
+        print(f"Preview URL: {preview_url}")
 
     outreach = load_and_merge(args.outreach_json, {
         "channel": args.outreach_channel,
@@ -175,13 +173,13 @@ def main() -> None:
             "preview_url": preview_url,
             "screenshot_url": args.screenshot_url,
             "deploy_provider": args.deploy_provider,
-            "deploy_id": args.deploy_id or deploy_result.get("commit_hash"),
+            "deploy_id": args.deploy_id or deploy_result.get("deployment_url"),
             "status": args.demo_status,
             "metadata": {
                 "source_url": args.url,
                 "clone_mode": args.clone_mode,
                 "output_dir": output_dir,
-                "git": deploy_result,
+                "deploy": deploy_result,
                 "quality_report_path": result.get("quality_report_path"),
                 "quality_passed": result.get("quality_report", {}).get("passed") if result.get("quality_report") else None,
             },
@@ -201,15 +199,9 @@ def main() -> None:
             api_token=args.api_token,
         )
         claim_url = backend_response.get("claimUrl") or backend_response.get("claim_url")
-        if claim_url and inject_claim_url(output_dir, claim_url):
-            deploy_result = deploy_to_git_branch(
-                source_dir=output_dir,
-                repo_dir=args.deploy_repo_dir,
-                branch=branch,
-                remote_url=args.deploy_remote,
-                commit_message=f"Attach claim URL for {args.business_name}",
-                push=args.push,
-            )
+        if claim_url and inject_claim_url(output_dir, claim_url) and not args.no_deploy:
+            print("Re-deploying with claim URL injected...")
+            deploy_result = deploy_pages_direct(subdomain, output_dir)
         if args.response_output:
             save_payload(backend_response, args.response_output)
 

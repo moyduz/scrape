@@ -1,73 +1,79 @@
 #!/usr/bin/env python3
-"""Attach a custom domain to a Cloudflare Pages project.
+"""Attach a custom domain to a Cloudflare Pages project + auto-create CNAME.
 
-Requires CLOUDFLARE_API_TOKEN or CF_API_TOKEN with Pages write permission.
+All credentials are read from .env automatically.
+
 Example:
-  CLOUDFLARE_API_TOKEN=... .venv/bin/python scripts/add_pages_custom_domain.py \
-    --account-id 5e5f8a26d62e3255d96f4410baf43d73 \
+  .venv/bin/python scripts/add_pages_custom_domain.py \
     --project-name austin-dermatology-studio \
-    --domain austin-dermatology.moydus.site
+    --domain austin-dermatology.moydus.com \
+    --wait
 """
 
 from __future__ import annotations
 
 import argparse
-import json
-import os
 import sys
-import urllib.error
-import urllib.request
+import time
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT_DIR))
+
+from integrations.cloudflare import attach_demo_domain, _pages_token, _req, _account_id
+from rich.console import Console
+
+console = Console()
 
 
-def api_request(method: str, url: str, token: str, payload: dict | None = None) -> dict:
-    data = json.dumps(payload).encode("utf-8") if payload is not None else None
-    request = urllib.request.Request(
-        url,
-        data=data,
-        method=method,
-        headers={
-            "authorization": f"Bearer {token}",
-            "content-type": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            body = response.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8")
-        raise RuntimeError(f"Cloudflare API error {exc.code}: {body}") from exc
-    return json.loads(body) if body else {}
+def get_domain_status(project_name: str, domain: str) -> str:
+    from integrations.cloudflare import list_pages_domains
+    for d in list_pages_domains(project_name):
+        if d["name"] == domain:
+            return d.get("status", "unknown")
+    return "not_found"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Attach a custom domain to a Cloudflare Pages project")
-    parser.add_argument("--account-id", default=os.environ.get("CLOUDFLARE_ACCOUNT_ID") or os.environ.get("CF_ACCOUNT_ID"))
-    parser.add_argument("--project-name", required=True)
-    parser.add_argument("--domain", required=True)
-    parser.add_argument("--dry-run", action="store_true")
-    args = parser.parse_args()
-
-    if not args.account_id:
-        raise SystemExit("Missing --account-id or CLOUDFLARE_ACCOUNT_ID/CF_ACCOUNT_ID")
-
-    endpoint = (
-        f"https://api.cloudflare.com/client/v4/accounts/{args.account_id}"
-        f"/pages/projects/{args.project_name}/domains"
-    )
+    p = argparse.ArgumentParser(description="Attach custom domain to Cloudflare Pages + CNAME")
+    p.add_argument("--project-name", required=True)
+    p.add_argument("--domain", required=True, help="e.g. austin-dermatology.moydus.com")
+    p.add_argument("--wait", action="store_true", help="Poll until domain becomes active")
+    p.add_argument("--dry-run", action="store_true")
+    args = p.parse_args()
 
     if args.dry_run:
-        print(json.dumps({"method": "POST", "url": endpoint, "payload": {"name": args.domain}}, indent=2))
+        console.print(f"[dim]DRY RUN: would attach {args.domain} → {args.project_name}[/dim]")
         return
 
-    token = os.environ.get("CLOUDFLARE_API_TOKEN") or os.environ.get("CF_API_TOKEN")
-    if not token:
-        raise SystemExit("Missing CLOUDFLARE_API_TOKEN or CF_API_TOKEN")
+    console.print(f"[bold]Attaching[/bold] {args.domain} → {args.project_name}...")
+    result = attach_demo_domain(args.project_name, args.domain)
 
-    result = api_request("POST", endpoint, token, {"name": args.domain})
-    print(json.dumps(result, indent=2))
-
-    if not result.get("success"):
+    if result["already_existed"]:
+        console.print("  [yellow]~ Pages domain already registered[/yellow]")
+    elif result["pages_ok"]:
+        console.print("  [green]✓ Pages domain registered[/green]")
+    else:
+        console.print("  [red]✗ Pages domain failed[/red]")
         sys.exit(1)
+
+    if result["dns_ok"]:
+        console.print("  [green]✓ CNAME created / already exists[/green]")
+    else:
+        console.print("  [yellow]~ CNAME skipped (check DNS manually)[/yellow]")
+
+    if args.wait:
+        console.print("\nWaiting for SSL provisioning...")
+        for _ in range(20):
+            status = get_domain_status(args.project_name, args.domain)
+            console.print(f"  status: {status}")
+            if status == "active":
+                console.print(f"\n[bold green]✓ https://{args.domain} is LIVE![/bold green]")
+                return
+            time.sleep(15)
+        console.print("[yellow]Timed out — SSL still provisioning, check back in a few minutes.[/yellow]")
+    else:
+        console.print(f"\nDone. https://{args.domain} will be live in ~2-5 min (SSL provisioning).")
 
 
 if __name__ == "__main__":

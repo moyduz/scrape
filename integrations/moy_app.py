@@ -5,7 +5,7 @@ from typing import Any
 
 import httpx
 
-DEFAULT_API_BASE_URL = "http://localhost:8000/api"
+DEFAULT_API_BASE_URL = "https://api.panelmanage.com/api"
 
 
 def load_json_file(path: str | None) -> dict[str, Any]:
